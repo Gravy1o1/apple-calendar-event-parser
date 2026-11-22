@@ -1,2 +1,2 @@
 # apple-calendar-event-parser
-A serverless API for parsing Apple Calendar events into bite-size peices of text. 
+An API for parsing Apple Calendar events into bite-size pieces of text. 
