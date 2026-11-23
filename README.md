@@ -17,6 +17,32 @@ La fonction `parse_class_event`...
 
 ![Diagramme de séquence](https://github.com/Gravy1o1/apple-calendar-event-parser/blob/main/sequence_diagram.puml)
 
+```mermaid
+---
+title: Diagramme de séquence du fonctionnement de l'IPA
+---
+sequenceDiagram
+    actor aw as Apple Watch<br/>(Swift App)
+
+    box Parser API (Hosted on Render)
+        participant uvi as Uvicorn
+        participant fast as FastAPI
+        participant python as Parser Algorithm
+    end
+
+    Note over uvi: Server boots up & opens network port
+
+    aw->>+uvi: POST /parse-event (Raw JSON)
+    uvi->>+fast: Forward raw HTTP request
+
+    fast->>fast: Validate JSON & unpack into Python variables
+    fast->>+python: parse_event(title, location, time, notes)
+
+    python-->>-fast: Return list of WatchPage dictionaries
+    fast-->>-uvi: Convert list back to JSON response
+    uvi-->>-aw: HTTP 200 OK (Final JSON pages)
+```
+
 ## Contrat d'IPA :
 
 **Live Endpoint:** `POST https://apple-calendar-event-parser.onrender.com`  
