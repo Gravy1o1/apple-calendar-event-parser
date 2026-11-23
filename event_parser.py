@@ -57,10 +57,54 @@ PARSING_RULES = [
     {
         "keywords": ["bring", "pack", "forget", "apporter", "prendre"],
         "icon": "backpack.fill",
-        "speech_template": "Remember to {item}."
+        "speech_template": "Remember to bring your {item}."
     }
 ]
 
+# Glue words to drop when building a 3-word visual label (English & French)
+STOP_WORDS = {
+    "a", "an", "the", "my", "your", "our", "to", "for", "on", "in", "at", "with", "of",
+    "don't", "forget", "remember", "make", "sure", "need", "please", "pack", "bring", "take", "grab",
+    "le", "la", "les", "un", "une", "des", "du", "de", "d'", "mon", "ma", "mes", "ton", "ta", "tes",
+    "votre", "vos", "pour", "sur", "dans", "avec", "et", "apporter", "apportez", "prendre", "prenez",
+    "oublier", "penser", "pense", "à"
+}
+
+def make_short_title(raw_item: str, matched_keyword: str | None = None, max_words: int = 3) -> str:
+    """
+    Distills a bullet point into at most `max_words` meaningful words 
+    without mid-word truncation.
+    """
+    # 1. Split into clean word tokens (keeping hyphenated terms like TI-84 intact)
+    words = re.findall(r"[A-Za-zÀ-ÿ0-9\-']+", raw_item)
+    
+    # 2. Filter out glue/filler words (unless the whole note is tiny)
+    meaningful = [w for w in words if w.lower() not in STOP_WORDS]
+    if not meaningful:
+        meaningful = words
+
+    # 3. If it's already 3 words or fewer, we're done!
+    if len(meaningful) <= max_words:
+        chosen = meaningful
+    elif matched_keyword:
+        # Find where the matched keyword sits and grab a tight window around it
+        kw_lower = matched_keyword.lower()
+        idx = next((i for i, w in enumerate(meaningful) if kw_lower in w.lower()), 0)
+        
+        # Grab 1 word before the keyword (e.g. "blue" before "binder") + keyword + 1 after
+        start = max(0, idx - 1)
+        end = min(len(meaningful), start + max_words)
+        # Adjust start if we hit the end of the list so we still get up to max_words
+        start = max(0, end - max_words)
+        chosen = meaningful[start:end]
+    else:
+        chosen = meaningful[:max_words]
+
+    # 4. Join and capitalize the first letter cleanly (preserving acronyms like TI-84)
+    title = " ".join(chosen)
+    if title:
+        title = title[0].upper() + title[1:]
+    return f"{title}"
 
 # Common leading verbs/fillers in English and French
 LEADING_FILLERS = re.compile(
@@ -83,26 +127,25 @@ def clean_item_text(raw_item: str) -> str:
         
     return cleaned
 
-def get_icon_and_speech(raw_item: str) -> tuple[str, str]:
+def get_icon_and_speech(raw_item: str) -> tuple[str, str, str | None]:
     lower_raw = raw_item.lower()
     cleaned = clean_item_text(raw_item)
     
     for rule in PARSING_RULES:
         for kw in rule["keywords"]:
             if re.search(rf"\b{re.escape(kw)}\b", lower_raw):
-                # If the cleaned item is basically just the keyword itself (e.g. "calculator"),
-                # avoid repeating it twice!
                 if cleaned.lower() == kw.lower():
                     speech = rule["speech_template"].split(":")[0] + "."
                 else:
                     speech = rule["speech_template"].format(item=cleaned)
                     
-                return rule["icon"], speech
+                # Return the matched keyword too!
+                return rule["icon"], speech, kw
                 
-    return "checklist", f"{cleaned}." #Default if the parsing 
+    return "checklist", f"{cleaned}.", None
 
 
-def class_event_parser(title: str, location: str, start_time: str, notes: str) -> list[dict]:
+def parse_class_event(title: str, location: str, start_time: str, notes: str) -> list[dict]:
     """
     This method seperates the main information of a Apple Calendar Event (title, location, date and notes)
     into a list of dictionnairies representing Apple Watch pages indicating :
@@ -139,13 +182,13 @@ def class_event_parser(title: str, location: str, start_time: str, notes: str) -
         pages.append({
             "displayedText" : f"{mins_left} mins",
             "systemIcon" : "chosen_event_icon",
-            "spokenText" : f"You have f{title} in {mins_left} minutes."
+            "spokenText" : f"You have {title} in {mins_left} minutes."
         })
     else :
         pages.append({
             "displayedText" : "NOW",
             "systemIcon" : "chosen_event_icon",
-            "spokenText" : f"Hurry. You have f{title} right now."
+            "spokenText" : f"Hurry. You have {title} right now."
         })
 
     #Page 2 : event location.
@@ -175,15 +218,8 @@ def class_event_parser(title: str, location: str, start_time: str, notes: str) -
             if len(raw_stripped) < 2:
                 continue
             
-            # Get icon & natural spoken sentence 
-            icon, spoken = get_icon_and_speech(raw_stripped)
-            
-            # Clean redundant words for the text displayed on the watch
-            short_clean = clean_item_text(raw_stripped)
-            # Capitalize first letter cleanly (without lowercasing acronym)
-            short_clean = short_clean[0].upper() + short_clean[1:]
-            
-            short_display = f"<{short_clean[:16]}...>" if len(short_clean) > 16 else f"<{short_clean}>"
+            icon, spoken, matched_kw = get_icon_and_speech(raw_stripped)
+            short_display = make_short_title(raw_stripped, matched_keyword=matched_kw, max_words=3)
             
             pages.append({
                 "displayedText" : short_display,
@@ -197,5 +233,6 @@ def class_event_parser(title: str, location: str, start_time: str, notes: str) -
         "systemIcon" : "checkmark.circle.fill",
         "spokenText" : "That was all of the information about this event."
     })
+
 
     return pages
