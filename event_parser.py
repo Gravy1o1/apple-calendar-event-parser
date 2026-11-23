@@ -1,6 +1,9 @@
 import re
 from datetime import datetime, timezone
 
+# The parser scans each bullet point form top to bottom against these
+# parsing rules and stops at the FIRST match (so stuff thats more specific
+# must be at the top, like for exceptions).
 PARSING_RULES = [
     # --- CATEGORY 1: EXAMS & QUIZZES (Highest Priority) ---
     {
@@ -61,7 +64,7 @@ PARSING_RULES = [
     }
 ]
 
-# Glue words to drop when building a 3-word visual label (English & French)
+# Glue words to drop when building max 3-word text to display on the watch
 STOP_WORDS = {
     "a", "an", "the", "my", "your", "our", "to", "for", "on", "in", "at", "with", "of",
     "don't", "forget", "remember", "make", "sure", "need", "please", "pack", "bring", "take", "grab",
@@ -72,8 +75,21 @@ STOP_WORDS = {
 
 def make_short_title(raw_item: str, matched_keyword: str | None = None, max_words: int = 3) -> str:
     """
-    Distills a bullet point into at most `max_words` meaningful words 
-    without mid-word truncation.
+    Condenses a bullet point into at most `max_words` meaningful words so text never
+    gets cut off mid-word on an Apple Watch screen.
+
+    Strategy:
+        1. Extract whole words (preserving hyphenated terms like "TI-84" or "B-204").
+        2. Remove filler words listed in STOP_WORDS.
+        3. If more than 3 words remain, center a 3-word window around `matched_keyword`
+           (e.g., keeping "blue" right next to "binder").
+
+    Args :
+        raw_item (str): What was written in the calendar notes, what was sent by the app.
+        matched_keyword (str): One of the glue words to drop
+    
+    Returns :
+        str : Le nouveau texte de 3 mots maximum à afficher sur la montre.
     """
     # 1. Split into clean word tokens (keeping hyphenated terms like TI-84 intact)
     words = re.findall(r"[A-Za-zÀ-ÿ0-9\-']+", raw_item)
@@ -106,7 +122,8 @@ def make_short_title(raw_item: str, matched_keyword: str | None = None, max_word
         title = title[0].upper() + title[1:]
     return f"{title}"
 
-# Common leading verbs/fillers in English and French
+# Regex pattern that matches repetitive command verbs at the start of a note bullet point.
+# like, "Don't forget to bring your blue binder" becomes just "blue binder" thanks to this pattern.
 LEADING_FILLERS = re.compile(
     r"^(?:"
     r"don't forget to|remember to|make sure to|need to|please|"
@@ -118,7 +135,10 @@ LEADING_FILLERS = re.compile(
 )
 
 def clean_item_text(raw_item: str) -> str:
-    """Strips redundant starter verbs and articles while keeping the core noun."""
+    """
+    Strips leading command verbs and articles from a note so spoken sentences don't
+    sound repetitive (e.g., avoiding "Bring your book: Bring math book").
+    """
     cleaned = LEADING_FILLERS.sub("", raw_item).strip()
     
     # Safety check: If stripping left almost nothing (e.g., note was just "Open"), keep original
@@ -133,20 +153,25 @@ def get_icon_and_speech(raw_item: str) -> tuple[str, str, str | None]:
     
     for rule in PARSING_RULES:
         for kw in rule["keywords"]:
+            # \b enforces whole-word matching so "pc" doesn't falsely match inside "topic"
             if re.search(rf"\b{re.escape(kw)}\b", lower_raw):
+                # Avoid awkward repetition if the note was literally just the keyword itself
+                # (e.g., "- Calculator" -> "Don't forget your calculator." instead of "...calculator: calculator.")
                 if cleaned.lower() == kw.lower():
                     speech = rule["speech_template"].split(":")[0] + "."
                 else:
                     speech = rule["speech_template"].format(item=cleaned)
                     
-                # Return the matched keyword too!
                 return rule["icon"], speech, kw
-                
+
+    # Default fallback if no specific school keyword matched      
     return "checklist", f"{cleaned}.", None
 
 
 def parse_class_event(title: str, location: str, start_time: str, notes: str) -> list[dict]:
     """
+    Main API entry point
+
     This method seperates the main information of a Apple Calendar Event (title, location, date and notes)
     into a list of dictionnairies representing Apple Watch pages indicating :
     - The text that should be on the screen (maximum 3 words);
