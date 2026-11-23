@@ -197,7 +197,7 @@ def parse_class_event(title: str, location: str, start_time: str, notes: str) ->
         if len(clean_location.split()) <= 3:
             pages.append({
                 "displayedText" : f"{clean_location}",
-                "systemIcon" : "map_tag",
+                "systemIcon" : "mappin",
                 "spokenText" : f"Go to {clean_location}."
             })
         else :
