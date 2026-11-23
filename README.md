@@ -15,7 +15,7 @@ La fonction `parse_class_event`...
 
 ### Diagramme de séquence :
 
-![Diagramme de séquence]()
+![Diagramme de séquence](https://github.com/Gravy1o1/apple-calendar-event-parser/blob/main/sequence_diagram.puml)
 
 ## Contrat d'IPA :
 
